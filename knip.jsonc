@@ -2115,6 +2115,7 @@
         "script/check-cargo-pinned-deps.mjs",
         "script/check-copy.ts",
         "script/check-pr-changelog.ts",
+        "script/computer-v3-guards.ts",
         "script/desktop-engine-ci-proof.ts",
         "script/desktop-engine-release.ts",
         "script/generate-changelog.ts",
