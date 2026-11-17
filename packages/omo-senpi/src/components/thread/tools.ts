@@ -5,6 +5,7 @@ import { type Static } from "typebox"
 import { toThreadAddressEntries } from "./address-book"
 import { checkNameConflict, normalizeThreadName, type ThreadResolveResult } from "./addressing"
 import { createLocalSessionHost, workspaceNote } from "./control/local-session-host"
+import { createdThreadId, type SessionOpenOutcome } from "./control/session-host"
 import { checkInitialSkills } from "./initial-skills"
 import {
   parseThreadParams,
@@ -246,7 +247,9 @@ function buildThreadTools(options: ThreadToolSurfaceOptions): {
           ),
         )
       }
-      if (admission.kind === "uncertain")
+      // #14060: a thread_create that failed after the host made its thread is recovered by re-running it: the thread is
+      // found by the id the key derives, and its prompt is admitted under its own key, so nothing happens twice.
+      if (admission.kind === "uncertain" && name !== "thread_create")
         return output(
           failure(
             "idempotency_uncertain",
@@ -389,13 +392,36 @@ function buildThreadTools(options: ThreadToolSurfaceOptions): {
             if (conflict.kind === "error") return { kind: "error", error: conflict } as ThreadToolResult
           }
           const preset = plan.creates ? launch.permissionPreset : undefined
-          const opened = await plan.host.open({
-            ...plan.request,
-            ...(plan.creates && name !== undefined ? { name } : {}),
-            ...(plan.creates && loaded !== undefined ? { initialSkills: loaded } : {}),
-            ...(preset === undefined ? {} : { permissionPreset: preset }),
-            ...(plan.creates ? launch.profile : {}),
-          })
+          // #14060: a new thread on this device is created under an id derived from this call's idempotency key, so a
+          // create whose reply was lost (the connection closed after the host made the session) is found again: on the
+          // spot, and by a retry under the same key, which reopens or reuses that thread and admits its prompt once.
+          const createdId =
+            plan.creates && plan.host.device === undefined ? createdThreadId(callerId, operationId) : undefined
+          const earlier = createdId === undefined ? undefined : existingHere(current, createdId, callerId)
+          const reopened = async (): Promise<SessionOpenOutcome | undefined> => {
+            if (createdId === undefined) return undefined
+            const found = existingHere(await view(), createdId, callerId)
+            if (found.kind === "live") return { kind: "ok", thread: found.thread }
+            return found.kind === "file" ? await plan.host.open({ sessionPath: found.sessionPath }) : undefined
+          }
+          let opened: SessionOpenOutcome
+          if (earlier?.kind === "live") opened = { kind: "ok", thread: earlier.thread }
+          else if (earlier?.kind === "file") opened = await plan.host.open({ sessionPath: earlier.sessionPath })
+          else
+            try {
+              opened = await plan.host.open({
+                ...plan.request,
+                ...(plan.creates && name !== undefined ? { name } : {}),
+                ...(plan.creates && loaded !== undefined ? { initialSkills: loaded } : {}),
+                ...(preset === undefined ? {} : { permissionPreset: preset }),
+                ...(plan.creates ? launch.profile : {}),
+                ...(createdId === undefined ? {} : { durableSessionId: createdId }),
+              })
+            } catch (error) {
+              const found = await reopened()
+              if (found === undefined) throw error
+              opened = found
+            }
           if (opened.kind === "error") return opened
           const created: ThreadToolResult = {
             kind: "ok",

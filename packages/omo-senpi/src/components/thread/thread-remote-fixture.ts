@@ -675,6 +675,13 @@ export function createRemoteThreadFixture() {
       sessionsDirectory?: boolean
       /** This device's engine refuses every open_session with this error text, as its host client throws it. */
       openThrows?: string
+      /**
+       * #14060: the first N opens CREATE the session (under the asked `durableSessionId`, as a host with that capability
+       * does) and then lose the reply: the connection closes before the response arrives.
+       */
+      openLosesReply?: number
+      /** With `openLosesReply`: the next listing after a lost reply fails too, so the create cannot recover on the spot. */
+      listFailsAfterLostReply?: boolean
     } = {},
   ) {
     const engine = extra.engine ?? ENGINE
@@ -686,16 +693,25 @@ export function createRemoteThreadFixture() {
       status: "open",
     }
     const sessions = extra.sessions ?? [local]
-    const openSession = mock(async (_request: Parameters<ThreadHost["openSession"]>[0]) => {
+    let lostReplies = extra.openLosesReply ?? 0
+    let listFails = false
+    const openSession = mock(async (request: Parameters<ThreadHost["openSession"]>[0]) => {
       if (extra.openThrows !== undefined) throw new Error(extra.openThrows)
+      const losing = extra.openLosesReply !== undefined
       const created: ThreadHostSession = {
-        sessionId: "route-created",
-        durableSessionId: "dur-created-here",
+        sessionId: losing ? `route-created-${sessions.length}` : "route-created",
+        durableSessionId:
+          losing && request.durableSessionId !== undefined ? request.durableSessionId : "dur-created-here",
         cwd: process.cwd(),
         name: null,
         status: "open",
       }
       sessions.push(created)
+      if (lostReplies > 0) {
+        lostReplies -= 1
+        listFails = extra.listFailsAfterLostReply === true
+        throw new Error("thread RPC connection closed before the response arrived")
+      }
       return created
     })
     const closed: Array<readonly [string, string | undefined]> = []
@@ -710,6 +726,10 @@ export function createRemoteThreadFixture() {
       socket: "/tmp/thread-remote-test.sock",
       listSessions: async () => {
         localListings += 1
+        if (listFails) {
+          listFails = false
+          throw new Error("thread RPC connection closed before the response arrived")
+        }
         return sessions
       },
       openSession,

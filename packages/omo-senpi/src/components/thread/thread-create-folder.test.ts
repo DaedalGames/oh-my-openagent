@@ -13,7 +13,10 @@ describe("thread_create: the folder a new thread starts in", () => {
     const a = account()
     const { run, openSession } = surface(a.remote)
     expect(await run("thread_create", { cwd: "packages" })).toMatchObject({ kind: "ok" })
-    expect(openSession.mock.calls.map((call) => call[0])).toEqual([{ cwd: join(process.cwd(), "packages") }])
+    // A create here asks for the id its call derives (#14060).
+    expect(openSession.mock.calls.map((call) => call[0])).toEqual([
+      { cwd: join(process.cwd(), "packages"), durableSessionId: expect.any(String) },
+    ])
   })
 
   test("#given a cwd that does not exist #when the thread is created on this device #then invalid_arguments folder_missing and nothing opens", async () => {
