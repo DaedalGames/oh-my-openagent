@@ -130,7 +130,7 @@ export async function withRpcSocket<T>(
       arm(options.timeoutMs)
       socket.once("connect", () => {
         clear()
-        diagnostic?.at("handshake")
+        diagnostic?.at(options.secret === undefined ? "connected" : "handshake")
         if (options.secret !== undefined) socket.write(Buffer.from(options.secret))
         resolve()
       })
