@@ -97,6 +97,7 @@ describe("Senpi compatibility test script", () => {
         "debugging",
         "frontend",
         "git",
+        "github",
         "init-deep",
         "lsp-setup",
         "programming",

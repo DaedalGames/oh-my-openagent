@@ -69,6 +69,7 @@ async function makePackagedPlugin(): Promise<string> {
     "debugging",
     "frontend",
     "git",
+    "github",
     "init-deep",
     "browser",
     "lsp-setup",
