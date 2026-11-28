@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -11,16 +11,16 @@ for (const prepared of [false, true]) {
     try {
       const pkg = join(root, "app")
       const engine = join(pkg, "node_modules", "@code-yeongyu", "senpi")
-      mkdirSync(join(engine, "dist", "core"), { recursive: true })
+      mkdirSync(join(engine, "dist", "bundle"), { recursive: true })
       cpSync(resolve(import.meta.dir, "../bin"), join(pkg, "bin"), { recursive: true })
       writeFileSync(join(pkg, "package.json"), '{"name":"omo-ai","version":"0.0.0-test","type":"module"}')
       writeFileSync(
         join(engine, "package.json"),
-        '{"name":"@code-yeongyu/senpi","type":"module","exports":"./dist/index.js"}',
+        '{"name":"@code-yeongyu/senpi","type":"module","exports":{".":"./dist/index.js","./runtime-manifest.json":"./dist/bundle/runtime-manifest.json"}}',
       )
       writeFileSync(join(engine, "dist", "index.js"), "export {}\n")
-      writeFileSync(join(engine, "dist", "core", "brand.js"), "export {}\n")
-      writeFileSync(join(engine, "dist", "cli.js"), "export {}\n")
+      writeFileSync(join(engine, "dist", "bundle", "runtime-manifest.json"), "{}\n")
+      writeFileSync(join(engine, "dist", "bundle", "cli.js"), "export {}\n")
       if (prepared) writeFileSync(join(engine, ".omo-engine-prepared"), "0.0.0-test\n")
       const node = Bun.which("node")
       if (node === null) throw new Error("launcher regression requires Node")
@@ -67,7 +67,9 @@ await import(${JSON.stringify(pathToFileURL(join(pkg, "bin", "omo.js")).href)})
         table: '{"a":[5,6]}',
         stdio: ["inherit", "inherit", "inherit", "ignore", "ignore", 5, 6],
       })
-      expect(result.stderr.includes("could not prepare")).toBe(!prepared)
+      // An unprepared engine is prepared by this launch before the spawn.
+      expect(result.stderr).not.toContain("could not prepare")
+      expect(readFileSync(join(engine, ".omo-engine-prepared"), "utf8").trim()).toBe("0.0.0-test")
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

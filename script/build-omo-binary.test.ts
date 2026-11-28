@@ -786,14 +786,12 @@ describe("embedded manifest parity (darwin-arm64)", () => {
 })
 
 describe("engine graph bundling", () => {
-  test("#given the compiled OMO entry #when its engine imports are inspected #then both retain the standard patched engine literal", () => {
+  test("#given the compiled OMO entry #when its engine imports are inspected #then both are the literal exported engine CLI subpath", () => {
     // given
     const compileEntrySource = readFileSync(join(repoRoot, "packages", "omo-native", "compile-entry.ts"), "utf8")
 
     // when
-    const engineImports = compileEntrySource.match(
-      /import\("\.\.\/\.\.\/node_modules\/@code-yeongyu\/senpi\/dist\/cli\.js"\)/g,
-    )
+    const engineImports = compileEntrySource.match(/import\("@code-yeongyu\/senpi\/cli"\)/g)
 
     // then
     expect(engineImports).toHaveLength(2)

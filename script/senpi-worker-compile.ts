@@ -1,21 +1,29 @@
 import { existsSync, realpathSync } from "node:fs"
-import { dirname, isAbsolute, relative, sep, join } from "node:path"
+import { dirname, isAbsolute, relative, sep } from "node:path"
 
+// Each entry is the file the engine's exported subpath resolves to, never a path into its per-file tree.
 const SENPI_COMPILE_ENTRIES = [
-  // Older pinned engines do not have a shared-session worker.
-  {
-    define: "SENPI_RPC_SESSION_WORKER_ENTRY",
-    path: "node_modules/@code-yeongyu/senpi/dist/modes/rpc/session-worker.js",
-  },
-  // The kill guard's judge, imported by URL from codemode kernels (senpi#5358); absent before 2026.11.2-3.
-  { define: "SENPI_KILL_GUARD_ENTRY", path: "node_modules/@code-yeongyu/senpi/dist/core/kill-guard/index.js" },
+  // The shared-session worker.
+  { define: "SENPI_RPC_SESSION_WORKER_ENTRY", specifier: "@code-yeongyu/senpi/session-worker" },
+  // The kill guard's judge, imported by URL from codemode kernels (senpi#5358).
+  { define: "SENPI_KILL_GUARD_ENTRY", specifier: "@code-yeongyu/senpi/kill-guard" },
 ] as const
+
+function resolveEntry(specifier: string, repoRoot: string): string | undefined {
+  try {
+    const resolved = Bun.resolveSync(specifier, repoRoot)
+    return existsSync(resolved) ? realpathSync(resolved) : undefined
+  } catch {
+    // An engine without the export (or no engine) compiles without that entry, as before.
+    return undefined
+  }
+}
 
 /** Bun entry names are relative to --root, not to the relocated executable's cwd. */
 export function senpiWorkerCompileArgs(repoRoot: string): string[] {
-  const entries = SENPI_COMPILE_ENTRIES.flatMap(({ define, path }) => {
-    const candidate = join(repoRoot, path)
-    return existsSync(candidate) ? [{ define, entry: realpathSync(candidate) }] : []
+  const entries = SENPI_COMPILE_ENTRIES.flatMap(({ define, specifier }) => {
+    const entry = resolveEntry(specifier, repoRoot)
+    return entry === undefined ? [] : [{ define, entry }]
   })
   if (entries.length === 0) return []
   let root = realpathSync(repoRoot)

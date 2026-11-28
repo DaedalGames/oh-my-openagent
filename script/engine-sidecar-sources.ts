@@ -7,7 +7,6 @@ import { createRequire } from "node:module"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { parseSync } from "oxc-parser"
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, "..")
@@ -84,85 +83,45 @@ function dependencyManifestPath(packageDir: string, dependencyName: string): str
   return packageRequire.resolve(`${dependencyName}/package.json`)
 }
 
-const EXTENSION_LOADER = join("dist", "core", "extensions", "loader.js")
-const EXTENSION_IMPORTER = "createBunExtensionImporter"
+const RUNTIME_MANIFEST_EXPORT = "./runtime-manifest.json"
 
-interface AstNode {
-  readonly type: string
-  readonly [field: string]: unknown
-}
-
-function isAstNode(value: unknown): value is AstNode {
-  return typeof value === "object" && value !== null && typeof Reflect.get(value, "type") === "string"
-}
-
-function collectNodes(node: unknown, match: (candidate: AstNode) => boolean, found: AstNode[] = []): AstNode[] {
-  if (Array.isArray(node)) {
-    for (const child of node) collectNodes(child, match, found)
-    return found
-  }
-  if (!isAstNode(node)) return found
-  if (match(node)) found.push(node)
-  for (const [field, child] of Object.entries(node)) {
-    if (field !== "type" && typeof child === "object") collectNodes(child, match, found)
-  }
-  return found
-}
-
-function propertyKey(property: AstNode, fail: (reason: string) => never): string {
-  if (property.type !== "Property" || property["computed"] === true || property["kind"] !== "init") {
-    return fail(`its table has a ${property.type === "SpreadElement" ? "spread" : "computed or non-plain"} entry`)
-  }
-  const key = property["key"]
-  if (isAstNode(key) && key.type === "Identifier" && typeof key["name"] === "string") return key["name"]
-  if (isAstNode(key) && key.type === "Literal" && typeof key["value"] === "string") return key["value"]
-  return fail("its table has a key that is neither an identifier nor a string")
+function exportTarget(packageJson: unknown): string | undefined {
+  const exportsMap: unknown =
+    typeof packageJson === "object" && packageJson !== null ? Reflect.get(packageJson, "exports") : undefined
+  const entry: unknown =
+    typeof exportsMap === "object" && exportsMap !== null ? Reflect.get(exportsMap, RUNTIME_MANIFEST_EXPORT) : undefined
+  const target: unknown = typeof entry === "object" && entry !== null ? Reflect.get(entry, "default") : entry
+  return typeof target === "string" ? target : undefined
 }
 
 /**
- * The specifiers the installed engine's extension loader serves to extensions: the keys of the object its loader
- * passes to createBunExtensionImporter, read structurally from the installed loader module. This is the table
- * senpi's own codemode sidecar copier reads. Anything the parse cannot read exactly fails the build.
+ * The specifiers the installed engine's extension loader serves to extensions: `extensionModules` in the engine's
+ * public `./runtime-manifest.json` export, which senpi's bundle build writes from the loader's own table (senpi#7662).
+ * Senpi's per-file `dist/` tree is never read. Anything the manifest does not state exactly fails the build.
  */
 export function engineServedSpecifiers(hostPackageDir = senpiPackageDir): ReadonlySet<string> {
-  const loaderPath = join(hostPackageDir, EXTENSION_LOADER)
-  const fail = (reason: string): never => {
-    throw new Error(`cannot read the engine's extension module table from ${loaderPath}: ${reason}`)
-  }
-  if (!existsSync(loaderPath)) return fail("the loader module does not exist")
-  const parsed = parseSync(loaderPath, readFileSync(loaderPath, "utf8"))
-  if (parsed.errors.length > 0) return fail(`it does not parse (${parsed.errors[0]?.message ?? "unknown error"})`)
-  const calls = collectNodes(parsed.program, (node) => {
-    const callee = node["callee"]
-    return (
-      node.type === "CallExpression" &&
-      isAstNode(callee) &&
-      callee.type === "Identifier" &&
-      callee["name"] === EXTENSION_IMPORTER
+  const packageJsonPath = join(hostPackageDir, "package.json")
+  const target = exportTarget(JSON.parse(readFileSync(packageJsonPath, "utf8")))
+  if (target === undefined) {
+    throw new Error(
+      `cannot read the engine's extension module table: ${packageJsonPath} has no ${RUNTIME_MANIFEST_EXPORT} export`,
     )
-  })
-  const tableNames = new Set(
-    calls.map((call) => {
-      const [first] = Array.isArray(call["arguments"]) ? call["arguments"] : []
-      return isAstNode(first) && first.type === "Identifier" && typeof first["name"] === "string" ? first["name"] : ""
-    }),
-  )
-  const [tableName] = tableNames
-  if (tableName === undefined) return fail(`it never calls ${EXTENSION_IMPORTER}`)
-  if (tableNames.size !== 1 || tableName === "") return fail(`${EXTENSION_IMPORTER} is not passed one named table`)
-  const declarations = collectNodes(parsed.program["body"], (node) => {
-    const id = node["id"]
-    return node.type === "VariableDeclarator" && isAstNode(id) && id.type === "Identifier" && id["name"] === tableName
-  })
-  const table = declarations.length === 1 ? declarations[0]?.["init"] : undefined
-  if (!isAstNode(table) || table.type !== "ObjectExpression" || !Array.isArray(table["properties"])) {
-    return fail(`${tableName} is not declared once as an object literal`)
   }
-  const specifiers = table["properties"].map((property: unknown) =>
-    isAstNode(property) ? propertyKey(property, fail) : fail("its table has an unreadable entry"),
+  const manifestPath = join(hostPackageDir, target)
+  const fail = (reason: string): never => {
+    throw new Error(`cannot read the engine's extension module table from ${manifestPath}: ${reason}`)
+  }
+  if (!existsSync(manifestPath)) return fail("the runtime manifest does not exist")
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  const modules: unknown =
+    typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, "extensionModules") : undefined
+  if (!Array.isArray(modules)) return fail("it has no extensionModules list")
+  if (modules.length === 0) return fail("extensionModules is empty")
+  return new Set(
+    modules.map((specifier: unknown) =>
+      typeof specifier === "string" && specifier !== "" ? specifier : fail("extensionModules has a non-string entry"),
+    ),
   )
-  if (specifiers.length === 0) return fail(`${tableName} is empty`)
-  return new Set(specifiers)
 }
 
 function packageRoot(specifier: string): string {

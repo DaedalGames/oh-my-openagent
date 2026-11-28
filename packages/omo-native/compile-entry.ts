@@ -78,16 +78,13 @@ import { resolveEngineTrustHelperPath } from "./engine-trust-helper-path"
 import { claimMemorySyncAtBoot } from "./memory-sync-boot"
 import { hostHelp } from "./bin/lib/host-help.js"
 
-// The engine is imported via a RELATIVE string LITERAL, inlined at both import
-// sites, and both properties are load-bearing:
-//  - `@code-yeongyu/senpi/dist/cli.js` is not in senpi's exports map (only ".",
-//    "./bun-runtime", "./rpc-entry", "./client"), so the bare subpath fails
-//    exports enforcement at build time.
-//  - bun's bundler only traces import() whose argument is a literal: a
-//    module-level const or a runtime-resolved URL (import.meta.resolve +
-//    pathToFileURL) drops the entire engine graph from the binary (1 module
-//    bundled instead of ≈4000) and the latter also fails to resolve inside
-//    $bunfs. Do NOT refactor these two literals into an indirection.
+// The engine is imported through senpi's exported subpaths (`@code-yeongyu/senpi/cli`,
+// `/host-probe`, `/kill-guard-command`), each written as a string LITERAL at its import site.
+// The literal is load-bearing: bun's bundler only traces import() whose argument is a literal,
+// and a module-level const or a runtime-resolved URL (import.meta.resolve + pathToFileURL)
+// drops the entire engine graph from the binary (1 module bundled instead of ≈4000); the latter
+// also fails to resolve inside $bunfs. Do NOT refactor these literals into an indirection.
+// Exported subpaths, never files under senpi's dist/: senpi stops shipping its per-file tree.
 // Probe receipts: .omo/evidence/20260825-bun-compile-release-binaries/
 
 export { buildSenpiArgs, shouldPrintCompiledBanner } from "./compile-args"
@@ -181,11 +178,7 @@ type CompiledLauncherSeams = {
 
 /** #15263: the launch profile of the primary a host ensure, handoff or `omo daemon run|handoff` left serving. */
 const observeCompiledHost = async (socket: string, timeout: number, options: { keyRoot: string }) =>
-  (await import("../../node_modules/@code-yeongyu/senpi/dist/modes/rpc/host-probe.js")).observeProtocolInfo(
-    socket,
-    timeout,
-    options,
-  )
+  (await import("@code-yeongyu/senpi/host-probe")).observeProtocolInfo(socket, timeout, options)
 
 /** RULING-74: the runtime's keychain helper sits directly beside the binary (the desktop layout); every command uses it first. */
 export function compiledKeychainHelper(execDir: string): string {
@@ -460,10 +453,9 @@ async function main(): Promise<void> {
   // #13449: in a compiled binary the kill guard's shims ask THIS executable `__kill-guard check ...` before every kill,
   // so this branch hands it to the engine's judge before any boot step: on this route there is no handoff, no
   // migration and no agent-dir write. It is the one exception to the #10697 line below; every other start still runs
-  // it. The literal path is load-bearing for the same reason as the engine import (see the note above).
+  // it. The literal specifier is load-bearing for the same reason as the engine import (see the note above).
   if (process.argv[2] === "__kill-guard") {
-    const { dispatchKillGuardCommand } =
-      await import("../../node_modules/@code-yeongyu/senpi/dist/cli/kill-guard-command.js")
+    const { dispatchKillGuardCommand } = await import("@code-yeongyu/senpi/kill-guard-command")
     await dispatchKillGuardCommand(process.argv.slice(2))
     return
   }
@@ -510,7 +502,7 @@ async function main(): Promise<void> {
     Object.assign(process.env, remapSenpiEnvironment(process.env, execDir))
     await claimMemorySyncAtBoot(process.argv.slice(2))
     await registerEngineRuntimeModules()
-    await import("../../node_modules/@code-yeongyu/senpi/dist/cli.js") // literal: see import note above
+    await import("@code-yeongyu/senpi/cli") // literal: see import note above
     return
   }
   const manifestFile = await selectRuntimeManifest(embedded)
@@ -640,7 +632,7 @@ async function main(): Promise<void> {
   }
   await claimMemorySyncAtBoot(process.argv.slice(2))
   await registerEngineRuntimeModules()
-  await import("../../node_modules/@code-yeongyu/senpi/dist/cli.js") // literal: see import note above
+  await import("@code-yeongyu/senpi/cli") // literal: see import note above
 }
 
 if (import.meta.main) await main()

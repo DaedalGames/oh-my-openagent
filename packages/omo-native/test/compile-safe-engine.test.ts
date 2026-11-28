@@ -146,10 +146,6 @@ describe("compile-safe engine preparation", () => {
     describe("#when the installed engine still resolves css-tree data dynamically", () => {
       test("#then the script prepares css-tree", () => {
         const root = createEngine()
-        write(
-          join(root, "dist", "modes", "rpc", "rpc-mode.js"),
-          readFileSync(new URL("./modes/rpc/rpc-mode.js", import.meta.resolve("@code-yeongyu/senpi")), "utf8"),
-        )
         const result = spawnSync("node", [PATCH_SCRIPT], {
           encoding: "utf8",
           env: { ...process.env, OMO_SENPI_PATCH_ROOT: root },

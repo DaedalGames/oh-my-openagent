@@ -96,44 +96,38 @@ export function updateTarget(
 
 export function resolveSenpi(options = {}) {
   const {
-    resolveIndex = () => fileURLToPath(import.meta.resolve("@code-yeongyu/senpi")),
+    resolveManifest = () => fileURLToPath(import.meta.resolve("@code-yeongyu/senpi/runtime-manifest.json")),
     platform = process.platform,
   } = options
-  let indexPath
+  let manifestPath
   try {
-    indexPath = resolveIndex()
+    manifestPath = resolveManifest()
   } catch (error) {
     throw new Error(
       `could not resolve @code-yeongyu/senpi; reinstall with: ${updateTarget().command} (${error.message})`,
     )
   }
 
-  const distDir = dirname(indexPath)
-  // A senpi that ships `dist/bundle/cli.js` hands the launcher one pre-linked esbuild bundle in
-  // place of the module graph `dist/cli.js` pulls in, so the engine boot skips every one of those
-  // resolutions. It is the engine's artifact, not this launcher's: an installed engine without it
-  // resolves exactly as it always did, and the pin can move in either direction without a
-  // launcher change.
-  const bundlePath = join(distDir, "bundle", "cli.js")
-  const unbundledPath = join(distDir, "cli.js")
-  const cliPath = existsSync(bundlePath) ? bundlePath : unbundledPath
-  if (!existsSync(cliPath)) {
-    throw new Error(`senpi CLI is missing at ${cliPath}; reinstall with: ${updateTarget().command}`)
-  }
-  // The engine imports this module on every boot, and it is the file interrupted upgrades lose in
-  // the wild (npm reify dies on a Windows-locked native module and leaves a partial tree), so
-  // checking it here turns the engine's raw ERR_MODULE_NOT_FOUND stack into one actionable line.
-  const brandPath = join(distDir, "core", "brand.js")
-  if (!existsSync(brandPath)) {
+  // The engine's bundle manifest (`dist/bundle/runtime-manifest.json`, an exported subpath) exists only when the
+  // bundle was installed, and the bundle CLI is the `cli.js` beside it. Both are reached through senpi's exports,
+  // never its per-file tree, which senpi stops shipping. Interrupted upgrades leave partial trees in the wild (npm
+  // reify dies on a Windows-locked native module), so a missing manifest is one actionable line here instead of the
+  // engine's raw ERR_MODULE_NOT_FOUND stack.
+  if (!existsSync(manifestPath)) {
     const windowsHint =
       platform === "win32"
         ? " (close every running omo/senpi process first: Windows locks loaded native modules, so npm fails with EBUSY mid-upgrade and leaves exactly this partial state)"
         : ""
     throw new Error(
-      `senpi engine files are incomplete: ${brandPath} is missing, which usually means an interrupted or failed omo-ai upgrade; reinstall with: ${updateTarget().command}${windowsHint}`,
+      `senpi engine files are incomplete: ${manifestPath} is missing, which usually means an interrupted or failed omo-ai upgrade; reinstall with: ${updateTarget().command}${windowsHint}`,
     )
   }
-  return { cliPath, packageRoot: dirname(dirname(indexPath)) }
+  const cliPath = join(dirname(manifestPath), "cli.js")
+  if (!existsSync(cliPath)) {
+    throw new Error(`senpi CLI is missing at ${cliPath}; reinstall with: ${updateTarget().command}`)
+  }
+  // <senpi>/dist/bundle/runtime-manifest.json
+  return { cliPath, packageRoot: dirname(dirname(dirname(manifestPath))) }
 }
 
 export function nearestNodeBin(startPath) {

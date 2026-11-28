@@ -53,12 +53,12 @@ function createFixture(installLayout: InstallLayout = "npm"): Fixture {
       name: "@code-yeongyu/senpi",
       version: "2026.8.9",
       type: "module",
-      exports: { ".": "./dist/index.js" },
+      exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
     }),
   )
   writeFile(join(senpiRoot, "dist", "index.js"), "export const fixture = true\n")
-  writeFile(join(senpiRoot, "dist", "cli.js"), "process.exit(0)\n")
-  writeFile(join(senpiRoot, "dist", "core", "brand.js"), "export {}\n")
+  writeFile(join(senpiRoot, "dist", "bundle", "cli.js"), "process.exit(0)\n")
+  writeFile(join(senpiRoot, "dist", "bundle", "runtime-manifest.json"), "{}\n")
   for (const [, artifact] of artifacts) writeFile(join(packageRoot, artifact))
   const agentDir = join(root, "agent")
   mkdirSync(agentDir, { recursive: true })

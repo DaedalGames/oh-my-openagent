@@ -16,7 +16,7 @@ describe.skipIf(process.platform !== "win32")("Windows launcher pipe pair (#1195
       const engine = join(pkg, "node_modules", "@code-yeongyu", "senpi")
       let child: ReturnType<typeof spawn> | undefined
       try {
-        mkdirSync(join(engine, "dist", "core"), { recursive: true })
+        mkdirSync(join(engine, "dist", "bundle"), { recursive: true })
         cpSync(join(SOURCE, "bin"), join(pkg, "bin"), { recursive: true })
         writeFileSync(
           join(pkg, "package.json"),
@@ -28,15 +28,15 @@ describe.skipIf(process.platform !== "win32")("Windows launcher pipe pair (#1195
             name: "@code-yeongyu/senpi",
             version: "0.0.0-test",
             type: "module",
-            exports: { ".": "./dist/index.js" },
+            exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
           }),
         )
         writeFileSync(join(engine, "dist", "index.js"), "export {}\n")
-        writeFileSync(join(engine, "dist", "core", "brand.js"), "export {}\n")
+        writeFileSync(join(engine, "dist", "bundle", "runtime-manifest.json"), "{}\n")
         // This stand-in models an installed, prepared engine. It deliberately has no
         // provider/RPC implementation for postinstall to patch.
         writeFileSync(join(engine, ".omo-engine-prepared"), "0.0.0-test\n")
-        const entry = join(engine, "dist", "cli.js")
+        const entry = join(engine, "dist", "bundle", "cli.js")
         writeFileSync(
           entry,
           `

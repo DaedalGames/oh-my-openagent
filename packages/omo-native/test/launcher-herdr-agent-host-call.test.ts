@@ -41,18 +41,18 @@ function engineLaunches(args: readonly string[], env: Record<string, string>): S
       name: "@code-yeongyu/senpi",
       version: "2026.8.9",
       type: "module",
-      exports: { ".": "./dist/index.js" },
+      exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
     }),
   )
   write(join(senpi, "dist", "index.js"), "export const fixture = true\n")
   write(
-    join(senpi, "dist", "cli.js"),
+    join(senpi, "dist", "bundle", "cli.js"),
     `import { appendFileSync } from "node:fs"
 appendFileSync(process.env.CLI_CAPTURE, JSON.stringify({ argv: process.argv.slice(2), HERDR_AGENT: process.env.HERDR_AGENT ?? null, marker: process.env.OMO_HERDR_AGENT_HINT ?? null }) + "\\n")
 console.log("{}")
 `,
   )
-  write(join(senpi, "dist", "core", "brand.js"), "export {}\n")
+  write(join(senpi, "dist", "bundle", "runtime-manifest.json"), "{}\n")
   for (const artifact of [
     "plugin/package.json",
     "plugin/extensions/omo.js",

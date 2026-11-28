@@ -18,30 +18,29 @@ function writeFile(path: string, content: string): void {
 
 type EngineFixtureOptions = {
   cli?: boolean
-  brandModule?: boolean
+  manifest?: boolean
 }
 
 /**
  * A minimal on-disk engine install shaped like the published package: the resolver hands the
- * launcher `dist/index.js`, and the launcher derives every sibling it preflights from there. The
- * corrupted variants mirror real partially-reified npm trees seen in the wild, where an interrupted
- * upgrade keeps some dist files and loses others.
+ * launcher the exported `runtime-manifest.json` (in `dist/bundle/`), and the launcher takes the
+ * bundle CLI beside it. The corrupted variants mirror real partially-reified npm trees seen in the
+ * wild, where an interrupted upgrade keeps some dist files and loses others.
  */
-function createEngineFixture(options: EngineFixtureOptions = {}): { indexPath: string; senpiRoot: string } {
+function createEngineFixture(options: EngineFixtureOptions = {}): { manifestPath: string; senpiRoot: string } {
   const root = mkdtempSync(join(tmpdir(), "omo-engine-integrity-"))
   roots.push(root)
   const senpiRoot = join(root, "node_modules", "@code-yeongyu", "senpi")
   writeFile(join(senpiRoot, "package.json"), JSON.stringify({ name: "@code-yeongyu/senpi", version: "2026.8.25" }))
-  const indexPath = join(senpiRoot, "dist", "index.js")
-  writeFile(indexPath, "export {}\n")
-  if (options.cli !== false) writeFile(join(senpiRoot, "dist", "cli.js"), "export {}\n")
-  if (options.brandModule !== false) writeFile(join(senpiRoot, "dist", "core", "brand.js"), "export {}\n")
-  return { indexPath, senpiRoot }
+  const manifestPath = join(senpiRoot, "dist", "bundle", "runtime-manifest.json")
+  if (options.manifest !== false) writeFile(manifestPath, "{}\n")
+  if (options.cli !== false) writeFile(join(senpiRoot, "dist", "bundle", "cli.js"), "export {}\n")
+  return { manifestPath, senpiRoot }
 }
 
-function resolveError(fixtureIndexPath: string, platform: string): Error {
+function resolveError(fixtureManifestPath: string, platform: string): Error {
   try {
-    resolveSenpi({ resolveIndex: () => fixtureIndexPath, platform })
+    resolveSenpi({ resolveManifest: () => fixtureManifestPath, platform })
   } catch (error) {
     return error as Error
   }
@@ -51,32 +50,32 @@ function resolveError(fixtureIndexPath: string, platform: string): Error {
 const REINSTALL_COMMAND = updateTarget().command
 
 describe("engine install integrity", () => {
-  describe("#given a partially reified install missing the brand contract module", () => {
+  describe("#given a partially reified install missing the bundle manifest", () => {
     describe("#when the launcher resolves the engine", () => {
       test("#then it refuses with the missing path, the partial-install diagnosis, and the reinstall command", () => {
-        const { indexPath, senpiRoot } = createEngineFixture({ brandModule: false })
+        const { manifestPath } = createEngineFixture({ manifest: false })
 
-        const error = resolveError(indexPath, "darwin")
+        const error = resolveError(manifestPath, "darwin")
 
-        expect(error.message).toContain(join(senpiRoot, "dist", "core", "brand.js"))
+        expect(error.message).toContain(manifestPath)
         expect(error.message).toContain("incomplete")
         expect(error.message).toContain("interrupted")
         expect(error.message).toContain(`reinstall with: ${REINSTALL_COMMAND}`)
       })
 
       test("#then win32 adds the locked-native-module hint", () => {
-        const { indexPath } = createEngineFixture({ brandModule: false })
+        const { manifestPath } = createEngineFixture({ manifest: false })
 
-        const error = resolveError(indexPath, "win32")
+        const error = resolveError(manifestPath, "win32")
 
         expect(error.message).toContain("EBUSY")
         expect(error.message).toContain("locks loaded native modules")
       })
 
       test("#then posix keeps the message free of the windows hint", () => {
-        const { indexPath } = createEngineFixture({ brandModule: false })
+        const { manifestPath } = createEngineFixture({ manifest: false })
 
-        const error = resolveError(indexPath, "linux")
+        const error = resolveError(manifestPath, "linux")
 
         expect(error.message).not.toContain("EBUSY")
       })
@@ -85,13 +84,13 @@ describe("engine install integrity", () => {
 
   describe("#given an intact engine install", () => {
     describe("#when the launcher resolves the engine", () => {
-      test("#then it hands back the cli path and package root unchanged", () => {
-        const { indexPath, senpiRoot } = createEngineFixture()
+      test("#then it hands back the bundle CLI beside the manifest and the package root", () => {
+        const { manifestPath, senpiRoot } = createEngineFixture()
 
-        const resolved = resolveSenpi({ resolveIndex: () => indexPath, platform: "win32" })
+        const resolved = resolveSenpi({ resolveManifest: () => manifestPath, platform: "win32" })
 
         expect(resolved).toEqual({
-          cliPath: join(senpiRoot, "dist", "cli.js"),
+          cliPath: join(senpiRoot, "dist", "bundle", "cli.js"),
           packageRoot: senpiRoot,
         })
       })
@@ -101,12 +100,12 @@ describe("engine install integrity", () => {
   describe("#given an install missing the engine CLI entirely", () => {
     describe("#when the launcher resolves the engine", () => {
       test("#then the established missing-CLI message is preserved", () => {
-        const { indexPath, senpiRoot } = createEngineFixture({ cli: false })
+        const { manifestPath, senpiRoot } = createEngineFixture({ cli: false })
 
-        const error = resolveError(indexPath, "darwin")
+        const error = resolveError(manifestPath, "darwin")
 
         expect(error.message).toBe(
-          `senpi CLI is missing at ${join(senpiRoot, "dist", "cli.js")}; reinstall with: ${REINSTALL_COMMAND}`,
+          `senpi CLI is missing at ${join(senpiRoot, "dist", "bundle", "cli.js")}; reinstall with: ${REINSTALL_COMMAND}`,
         )
       })
     })

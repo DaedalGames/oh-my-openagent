@@ -122,7 +122,7 @@ let tarball = ""
 /**
  * Runs `bun add` against this file's own install cache under its temp root, shared by both installs so the dependency
  * tree (~631 MB) is downloaded once (#13974). It is never the host's cache, and `--backend copyfile` copies files out of
- * it, so the engine preparation that rewrites dist/modes/rpc/rpc-mode.js in place reaches neither cache (#13819).
+ * it, so the engine preparation that rewrites engine files in place reaches neither cache (#13819).
  */
 async function bunAddInIsolatedCache(consumer: string, args: readonly string[]): Promise<Step> {
   const cache = join(root, "bun-install-cache")
@@ -218,9 +218,8 @@ describe("omo-ai packed install", () => {
     const installedPackageRoot = join(consumer, "node_modules", "omo-ai")
     const senpiRoot = installedSenpiRoot(installedPackageRoot)
     expect(senpiRoot).toBeDefined()
-    const rpcMode = join(senpiRoot!, "dist", "modes", "rpc", "rpc-mode.js")
     const stamp = join(senpiRoot!, ".omo-engine-prepared")
-    // The stamp is the precondition: a hardlinked Bun cache can already carry a rewritten rpc-mode.js.
+    // The stamp is the precondition: a hardlinked Bun cache can already carry rewritten engine files.
     expect(existsSync(stamp)).toBe(false)
 
     const launch = await step(["node", join(installedPackageRoot, "bin", "omo.js"), "--help"], {
@@ -236,7 +235,6 @@ describe("omo-ai packed install", () => {
     })
     expect(launch.stderr).not.toContain("could not prepare the installed engine")
     expect(launch.exitCode).toBe(0)
-    expect(readFileSync(rpcMode, "utf8")).toContain("invalid_stream_event")
     const omoVersion = JSON.parse(readFileSync(join(installedPackageRoot, "package.json"), "utf8")).version
     expect(readFileSync(stamp, "utf8").trim()).toBe(omoVersion)
   }, 240_000)

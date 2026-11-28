@@ -13,30 +13,20 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { packageRoot, resolveSenpi } from "./package-paths.js"
+import { packageRoot } from "./package-paths.js"
 
 export const COVERAGE_RUNTIME = join("plugin", "runtime", "category-coverage", "index.js")
 
 async function loadEngine() {
-  const core = join(resolveSenpi().packageRoot, "dist", "core")
-  const load = (name) => import(pathToFileURL(join(core, name)).href)
-  const subscriptionDir = join("extensions", "builtin", "anthropic-subscription")
-  const [runtime, auth, store, settings, subscription, subscriptionSettings] = await Promise.all([
-    load("model-runtime.js"),
-    load("auth-storage.js"),
-    load("models-store.js"),
-    load("settings-manager.js"),
-    load(join(subscriptionDir, "index.js")),
-    load(join(subscriptionDir, "settings.js")),
-  ])
+  const coverage = await import("@code-yeongyu/senpi/model-coverage")
   return {
-    ModelRuntime: runtime.ModelRuntime,
-    AuthStorage: auth.AuthStorage,
-    ReadOnlyAuthStorage: auth.ReadOnlyAuthStorage,
-    InMemoryCodingAgentModelsStore: store.InMemoryCodingAgentModelsStore,
-    SettingsManager: settings.SettingsManager,
-    registerAnthropicSubscription: subscription.registerAnthropicSubscriptionExtension,
-    loadAnthropicSubscriptionSettings: subscriptionSettings.loadAnthropicSubscriptionProviderSettings,
+    ModelRuntime: coverage.ModelRuntime,
+    AuthStorage: coverage.AuthStorage,
+    ReadOnlyAuthStorage: coverage.ReadOnlyAuthStorage,
+    InMemoryCodingAgentModelsStore: coverage.InMemoryCodingAgentModelsStore,
+    SettingsManager: coverage.SettingsManager,
+    registerAnthropicSubscription: coverage.registerAnthropicSubscriptionExtension,
+    loadAnthropicSubscriptionSettings: coverage.loadAnthropicSubscriptionProviderSettings,
   }
 }
 

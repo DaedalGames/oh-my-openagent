@@ -29,6 +29,17 @@ test.each(["directory", "bun-link", "external-link"])(
         mkdirSync(dirname(packagePath), { recursive: true })
         symlinkSync(physicalPackage, packagePath, "junction")
       }
+      writeFileSync(
+        join(packagePath, "package.json"),
+        JSON.stringify({
+          name: "@code-yeongyu/senpi",
+          type: "module",
+          exports: {
+            "./session-worker": { import: "./dist/modes/rpc/session-worker.js" },
+            "./kill-guard": { import: "./dist/core/kill-guard/index.js" },
+          },
+        }),
+      )
       const worker = join(packagePath, "dist/modes/rpc/session-worker.js")
       writeFileSync(worker, `import { parentPort } from "node:worker_threads"; parentPort.postMessage("ready");`)
       // The judge a codemode kernel imports by URL (senpi#5358 host.ts judgeModuleUrl), never through the bundle graph.
@@ -89,7 +100,7 @@ console.log("two-workers-ready " + judge.KILL_GUARD_TAG);`,
   45_000,
 )
 
-test("#given a pre-worker engine #when resolving compile args #then the legacy graph stays unchanged", () => {
+test("#given no engine exporting the worker entries #when resolving compile args #then the legacy graph stays unchanged", () => {
   const root = mkdtempSync(join(tmpdir(), "omo-worker-legacy-"))
   try {
     expect(senpiWorkerCompileArgs(root)).toEqual([])

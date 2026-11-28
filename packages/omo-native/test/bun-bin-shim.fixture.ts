@@ -84,28 +84,27 @@ export function createFixture(label = ""): Fixture {
     }),
   )
   const senpiRoot = join(packageRoot, "node_modules", "@code-yeongyu", "senpi")
-  mkdirSync(join(senpiRoot, "dist"), { recursive: true })
+  mkdirSync(join(senpiRoot, "dist", "bundle"), { recursive: true })
   writeFileSync(
     join(senpiRoot, "package.json"),
     JSON.stringify({
       name: "@code-yeongyu/senpi",
       version: "2026.8.9",
       type: "module",
-      exports: { ".": "./dist/index.js" },
+      exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
     }),
   )
   writeFileSync(join(senpiRoot, "dist", "index.js"), "export const fixture = true\n")
   const captureFile = join(root, "capture.json")
   writeFileSync(
-    join(senpiRoot, "dist", "cli.js"),
+    join(senpiRoot, "dist", "bundle", "cli.js"),
     `
 import { writeFileSync } from "node:fs"
 writeFileSync(process.env.CAPTURE_FILE, JSON.stringify({ argv: process.argv.slice(2), env: process.env, versions: process.versions }))
 process.exit(Number(process.env.FAKE_EXIT ?? 0))
 `,
   )
-  mkdirSync(join(senpiRoot, "dist", "core"), { recursive: true })
-  writeFileSync(join(senpiRoot, "dist", "core", "brand.js"), "export {}\n")
+  writeFileSync(join(senpiRoot, "dist", "bundle", "runtime-manifest.json"), "{}\n")
   // A stand-in bun that proves it ran; the real bun end to end is QA's job against the real install.
   // It answers `--version` like a real bun at the engine's floor, because the launcher probes the
   // bun a bun-global install chose before trusting it (#9563).
@@ -152,23 +151,12 @@ export function launchEntry(fixture: Fixture, args: string[], env: Record<string
   })
 }
 
-/**
- * Turns the fixture into what `bun add -g` leaves behind before it runs the package's own scripts:
- * the real postinstall line, and an engine tree that postinstall can prepare (the RPC serializer it
- * patches comes from the installed engine).
- */
+/** Turns the fixture into what `bun add -g` leaves behind before it runs the package's own scripts: the real postinstall line. */
 export function stageInstalledPackage(fixture: Fixture): void {
   const manifestPath = join(fixture.packageRoot, "package.json")
   const shipped = JSON.parse(readFileSync(join(SOURCE_ROOT, "package.json"), "utf8"))
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"))
   writeFileSync(manifestPath, JSON.stringify({ ...manifest, scripts: { postinstall: shipped.scripts.postinstall } }))
-  const senpiRoot = join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi")
-  const rpcMode = join(senpiRoot, "dist", "modes", "rpc", "rpc-mode.js")
-  mkdirSync(dirname(rpcMode), { recursive: true })
-  writeFileSync(
-    rpcMode,
-    readFileSync(new URL("./modes/rpc/rpc-mode.js", import.meta.resolve("@code-yeongyu/senpi")), "utf8"),
-  )
 }
 
 /** A PATH that reaches bun and the system shell but no node, like a launchd job or a bun-only box. */

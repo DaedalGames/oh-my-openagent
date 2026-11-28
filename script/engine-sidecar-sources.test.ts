@@ -5,7 +5,6 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
 import { RELEASE_BINARY_TARGETS, resolveExpectedSidecarRelPaths } from "./build-omo-binary"
-import ts from "@typescript/typescript6"
 import {
   codemodeRuntimeDependencySources,
   engineServedPackages,
@@ -45,82 +44,38 @@ function writePackage(
   writeFileSync(join(packageDir, "package.json"), `${JSON.stringify(manifest)}\n`)
 }
 
-/** An engine fixture whose extension loader module is `source`. */
-function writeEngineLoader(hostDir: string, source: string): void {
-  writePackage(hostDir, { name: "host", version: "1.0.0" })
-  const extensions = join(hostDir, "dist", "core", "extensions")
-  mkdirSync(extensions, { recursive: true })
-  writeFileSync(join(extensions, "loader.js"), source)
-}
-
-/** A loader shaped like the engine's: a module-level table that it passes to createBunExtensionImporter. */
-function loaderSource(tableBody: string): string {
-  return [
-    "const bundled = {};",
-    `const VIRTUAL_MODULES = {\n${tableBody}\n};`,
-    "export async function createImporter() {",
-    '    const { createBunExtensionImporter } = await import("./bun-extension-importer.js");',
-    "    return createBunExtensionImporter(VIRTUAL_MODULES, {}, {});",
-    "}",
-    "",
-  ].join("\n")
+/** An engine fixture whose public runtime manifest export (`./runtime-manifest.json`) holds `manifest`. */
+function writeEngineManifest(hostDir: string, manifest: unknown): void {
+  mkdirSync(join(hostDir, "dist", "bundle"), { recursive: true })
+  writeFileSync(
+    join(hostDir, "package.json"),
+    `${JSON.stringify({
+      name: "host",
+      version: "1.0.0",
+      exports: { "./runtime-manifest.json": { default: "./dist/bundle/runtime-manifest.json" } },
+    })}\n`,
+  )
+  writeFileSync(join(hostDir, "dist", "bundle", "runtime-manifest.json"), JSON.stringify(manifest))
 }
 
 /** An engine fixture whose extension loader serves `specifiers`. */
 function writeEngine(hostDir: string, specifiers: readonly string[]): void {
-  writeEngineLoader(
-    hostDir,
-    loaderSource(specifiers.map((specifier) => `    ${JSON.stringify(specifier)}: bundled,`).join("\n")),
-  )
+  writeEngineManifest(hostDir, { buildId: "fixture", externals: [], extensionModules: specifiers })
 }
 
 /**
- * The keys of the table the installed engine's loader passes to createBunExtensionImporter, read with the TypeScript
- * parser: independent of the oxc-based reader under test.
+ * What the installed engine serves, read from its runtime manifest through Bun's resolution of the public export:
+ * independent of the export-map reader under test.
  */
-function installedLoaderTableByTypeScript(): string[] {
-  const loaderPath = join(
-    realpathSync(join(repoRoot, "node_modules", "@code-yeongyu", "senpi")),
-    "dist",
-    "core",
-    "extensions",
-    "loader.js",
-  )
-  const source = ts.createSourceFile(loaderPath, readFileSync(loaderPath, "utf8"), ts.ScriptTarget.Latest, true)
-  let tableName: string | undefined
-  let table: string[] | undefined
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isIdentifier(node.expression) &&
-      node.expression.text === "createBunExtensionImporter"
-    ) {
-      const first = node.arguments[0]
-      if (first !== undefined && ts.isIdentifier(first)) tableName = first.text
-    }
-    ts.forEachChild(node, visit)
+function installedServedModules(): string[] {
+  const manifestPath = fileURLToPath(import.meta.resolve("@code-yeongyu/senpi/runtime-manifest.json"))
+  const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf8"))
+  const modules: unknown =
+    typeof manifest === "object" && manifest !== null ? Reflect.get(manifest, "extensionModules") : undefined
+  if (!Array.isArray(modules) || !modules.every((entry) => typeof entry === "string")) {
+    throw new Error(`${manifestPath} lists no extensionModules`)
   }
-  visit(source)
-  const findTable = (node: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(node) &&
-      ts.isIdentifier(node.name) &&
-      node.name.text === tableName &&
-      node.initializer &&
-      ts.isObjectLiteralExpression(node.initializer)
-    ) {
-      table = node.initializer.properties.map((property) => {
-        if (!ts.isPropertyAssignment(property))
-          throw new Error(`unexpected table entry kind ${ts.SyntaxKind[property.kind]}`)
-        if (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) return property.name.text
-        throw new Error("unexpected table key")
-      })
-    }
-    ts.forEachChild(node, findTable)
-  }
-  findTable(source)
-  if (table === undefined) throw new Error(`no table passed to createBunExtensionImporter in ${loaderPath}`)
-  return table
+  return modules
 }
 
 /**
@@ -332,68 +287,44 @@ describe("sidecar parity set", () => {
   })
 
   test.each([
-    ["a nested value", "    typebox: {\n        evil: bundled,\n    },", ["typebox"]],
-    ["a block comment", '    /*\n    "ws": bundled,\n    */\n    typebox: bundled,', ["typebox"]],
-    ["a commented-out line", '    // "ws": bundled,\n    typebox: bundled,', ["typebox"]],
-    ["a single-quoted key", "    '@scope/pkg': bundled,\n    typebox: bundled,", ["@scope/pkg", "typebox"]],
-  ] as const)(
-    "#given a loader table with %s #when it is read #then exactly its own keys are served",
-    (_label, tableBody, expected) => {
-      // given
-      const host = join(tmpdir(), `omo-engine-table-${process.pid}-${crypto.randomUUID()}`)
-      try {
-        writeEngineLoader(host, loaderSource(tableBody))
-
-        // when / then
-        expect([...engineServedSpecifiers(host)].sort()).toEqual([...expected])
-      } finally {
-        rmSync(host, { recursive: true, force: true })
-      }
-    },
-  )
-
-  test.each([
-    ["a spread entry", loaderSource("    ...other,\n    typebox: bundled,")],
-    ["a computed key", loaderSource("    [name]: bundled,\n    typebox: bundled,")],
+    ["no runtime manifest export", (host: string) => writePackage(host, { name: "host", version: "1.0.0" })],
     [
-      "an inline object passed to the importer",
-      "export const load = () => createBunExtensionImporter({ typebox: {} }, {}, {});\n",
+      "an export whose file is missing",
+      (host: string) => {
+        writeEngine(host, ["typebox"])
+        rmSync(join(host, "dist", "bundle", "runtime-manifest.json"))
+      },
     ],
-    [
-      "no importer call",
-      loaderSource("    typebox: bundled,").replaceAll("createBunExtensionImporter", "createOtherImporter"),
-    ],
-    ["an empty table", loaderSource("")],
+    ["a manifest without extensionModules", (host: string) => writeEngineManifest(host, { buildId: "fixture" })],
+    ["an empty extensionModules", (host: string) => writeEngine(host, [])],
+    ["a non-string entry", (host: string) => writeEngineManifest(host, { extensionModules: ["typebox", 7] })],
   ] as const)(
-    "#given a loader with %s #when its table is read #then the build fails naming the loader",
-    (_label, source) => {
+    "#given an engine with %s #when its served set is read #then the build fails naming the table",
+    (_label, arrange) => {
       // given
       const host = join(tmpdir(), `omo-engine-bad-table-${process.pid}-${crypto.randomUUID()}`)
       try {
-        writeEngineLoader(host, source)
+        arrange(host)
 
         // when / then
-        expect(() => engineServedSpecifiers(host)).toThrow(
-          `cannot read the engine's extension module table from ${join(host, "dist", "core", "extensions", "loader.js")}`,
-        )
+        expect(() => engineServedSpecifiers(host)).toThrow("cannot read the engine's extension module table")
       } finally {
         rmSync(host, { recursive: true, force: true })
       }
     },
   )
 
-  // Release contract (senpi's binary copier reads the same table): the served set is the object the installed loader
-  // actually hands to createBunExtensionImporter, not a sibling module nothing imports. That module lacks the two
-  // @code-yeongyu/senpi entries, so reading it fails here.
-  test("#given the installed engine #when its served set is read #then it equals the table its loader passes to createBunExtensionImporter", () => {
+  // Release contract (senpi#7662): the served set is the engine's own published list, which senpi's bundle build writes
+  // from the table its extension loader serves, including the senpi subpaths that table spreads in.
+  test("#given the installed engine #when its served set is read #then it equals the extensionModules its runtime manifest publishes", () => {
     // given
-    const loaderTable = installedLoaderTableByTypeScript()
+    const published = installedServedModules()
 
     // when
     const served = engineServedSpecifiers()
 
     // then
-    expect([...served].sort()).toEqual([...loaderTable].sort())
+    expect([...served].sort()).toEqual([...published].sort())
     expect(served.has("@code-yeongyu/senpi")).toBe(true)
     expect(served.has("@code-yeongyu/senpi/session-worker-data")).toBe(true)
   })
@@ -433,7 +364,7 @@ describe("sidecar parity set", () => {
 
       // when / then
       expect(() => codemodeRuntimeDependencySources(codemode, host)).toThrow("extension module table")
-      expect(() => engineServedPackages(host)).toThrow(join(host, "dist", "core", "extensions", "loader.js"))
+      expect(() => engineServedPackages(host)).toThrow(join(host, "package.json"))
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -512,7 +443,7 @@ describe("sidecar parity set", () => {
   // @earendil-works/pi-realm-registry, which the engine depends on but does not serve to extensions).
   test("#given the installed engine #when codemode's sidecars are staged #then every bare import of codemode and its staged dependencies resolves to an engine-served module or a staged package", () => {
     // given - what the installed engine's loader serves, read with an independent parser
-    const served = new Set(installedLoaderTableByTypeScript())
+    const served = new Set(installedServedModules())
     const codemodeRoot = "node_modules/@code-yeongyu/senpi-codemode"
     const stage = join(tmpdir(), `omo-codemode-stage-${process.pid}-${crypto.randomUUID()}`)
     try {

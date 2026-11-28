@@ -17,7 +17,7 @@ test("npm daemon run, host ensure, host handoff and host session open give the e
     const engine = join(root, "node_modules", "@code-yeongyu", "senpi")
     const spec = join(root, "plugin", "daemon-launch-spec.json")
     const capture = join(root, "calls")
-    mkdirSync(join(engine, "dist/core"), { recursive: true })
+    mkdirSync(join(engine, "dist/bundle"), { recursive: true })
     mkdirSync(join(root, "plugin"))
     mkdirSync(home)
     cpSync(join(import.meta.dir, "../bin"), join(root, "bin"), { recursive: true })
@@ -25,13 +25,17 @@ test("npm daemon run, host ensure, host handoff and host session open give the e
     writeFileSync(spec, "{}")
     writeFileSync(
       join(engine, "package.json"),
-      JSON.stringify({ name: "@code-yeongyu/senpi", type: "module", exports: "./dist/index.js" }),
+      JSON.stringify({
+        name: "@code-yeongyu/senpi",
+        type: "module",
+        exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
+      }),
     )
     writeFileSync(join(engine, ".omo-engine-prepared"), "1.0.0\n")
     writeFileSync(join(engine, "dist/index.js"), "")
-    writeFileSync(join(engine, "dist/core/brand.js"), "")
+    writeFileSync(join(engine, "dist/bundle/runtime-manifest.json"), "{}\n")
     writeFileSync(
-      join(engine, "dist/cli.js"),
+      join(engine, "dist/bundle/cli.js"),
       `
       import { appendFileSync } from "node:fs"
       const args = process.argv.slice(2)

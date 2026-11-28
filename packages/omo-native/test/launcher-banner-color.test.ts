@@ -42,19 +42,19 @@ function createFixture() {
       name: "@code-yeongyu/senpi",
       version: "2026.8.9",
       type: "module",
-      exports: { ".": "./dist/index.js" },
+      exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
     }),
   )
   write(join(senpiRoot, "dist", "index.js"), "export const fixture = true\n")
   write(
-    join(senpiRoot, "dist", "cli.js"),
+    join(senpiRoot, "dist", "bundle", "cli.js"),
     `
 import { writeFileSync } from "node:fs"
 writeFileSync(process.env.CAPTURE_FILE, "spawned")
 process.exit(0)
 `,
   )
-  write(join(senpiRoot, "dist", "core", "brand.js"), "export {}\n")
+  write(join(senpiRoot, "dist", "bundle", "runtime-manifest.json"), "{}\n")
   for (const artifact of [
     "plugin/package.json",
     "plugin/extensions/omo.js",

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { ENGINE_PREPARED_STAMP, ensureEnginePrepared } from "../bin/lib/engine-prepare.js"
 
-const RPC_MODE = "dist/modes/rpc/rpc-mode.js"
+// css-tree's runtime patch-data loader: the step engine preparation inlines (compile-safe-engine.js).
+const DATA_PATCH = "node_modules/css-tree/lib/data-patch.js"
+const UNPREPARED_DATA_PATCH =
+  "import { createRequire } from 'module';\n\nconst require = createRequire(import.meta.url);\nconst patch = require('../data/patch.json');\n\nexport default patch;\n"
 const OMO_VERSION = "5.0.0-0.beta.86"
 const REINSTALL = "npm i -g omo-ai@beta"
 
@@ -17,12 +20,12 @@ function createEngine(): string {
     join(root, "package.json"),
     JSON.stringify({ name: "@code-yeongyu/senpi", version: "2026.9.23", type: "module" }),
   )
-  const rpcPath = join(root, RPC_MODE)
-  mkdirSync(dirname(rpcPath), { recursive: true })
-  writeFileSync(
-    rpcPath,
-    readFileSync(new URL("./modes/rpc/rpc-mode.js", import.meta.resolve("@code-yeongyu/senpi")), "utf8"),
-  )
+  const cssTree = join(root, "node_modules", "css-tree")
+  mkdirSync(join(cssTree, "data"), { recursive: true })
+  mkdirSync(join(cssTree, "lib"), { recursive: true })
+  writeFileSync(join(cssTree, "package.json"), JSON.stringify({ name: "css-tree", version: "3.2.1", type: "module" }))
+  writeFileSync(join(cssTree, "data", "patch.json"), JSON.stringify({ properties: { color: { syntax: "<color>" } } }))
+  writeFileSync(join(root, DATA_PATCH), UNPREPARED_DATA_PATCH)
   return root
 }
 
@@ -35,7 +38,7 @@ function prepareOnce(root: string, reported: string[] = []) {
   })
 }
 
-const readRpc = (root: string) => readFileSync(join(root, RPC_MODE), "utf8")
+const readDataPatch = (root: string) => readFileSync(join(root, DATA_PATCH), "utf8")
 const readStamp = (root: string) => readFileSync(join(root, ENGINE_PREPARED_STAMP), "utf8").trim()
 
 afterEach(() => {
@@ -47,7 +50,7 @@ describe("launcher engine preparation (#8713)", () => {
     test("#then the launch prepares it and stamps it with the omo-ai version", () => {
       const root = createEngine()
       prepareOnce(root)
-      expect(readRpc(root)).toContain("invalid_stream_event")
+      expect(readDataPatch(root)).not.toContain("createRequire")
       expect(readStamp(root)).toBe(OMO_VERSION)
     })
   })
@@ -56,11 +59,11 @@ describe("launcher engine preparation (#8713)", () => {
     test("#then the launch runs no preparation step again", () => {
       const root = createEngine()
       prepareOnce(root)
-      rmSync(join(root, RPC_MODE))
+      writeFileSync(join(root, DATA_PATCH), UNPREPARED_DATA_PATCH)
       const reported: string[] = []
       prepareOnce(root, reported)
       expect(reported).toEqual([])
-      expect(existsSync(join(root, RPC_MODE))).toBe(false)
+      expect(readDataPatch(root)).toBe(UNPREPARED_DATA_PATCH)
     })
   })
 
@@ -69,7 +72,7 @@ describe("launcher engine preparation (#8713)", () => {
       const root = createEngine()
       writeFileSync(join(root, ENGINE_PREPARED_STAMP), "5.0.0-0.beta.85\n")
       prepareOnce(root)
-      expect(readRpc(root)).toContain("invalid_stream_event")
+      expect(readDataPatch(root)).not.toContain("createRequire")
       expect(readStamp(root)).toBe(OMO_VERSION)
     })
   })
@@ -77,10 +80,11 @@ describe("launcher engine preparation (#8713)", () => {
   describe("#given an engine whose preparation fails", () => {
     test("#then the launch reports it with the reinstall command, does not throw, and leaves no stamp", () => {
       const root = createEngine()
-      rmSync(join(root, RPC_MODE))
+      // css-tree's patch data cannot be read, so it cannot be inlined.
+      writeFileSync(join(root, "node_modules", "css-tree", "data", "patch.json"), "{")
       const reported: string[] = []
       expect(() => prepareOnce(root, reported)).not.toThrow()
-      expect(reported.join("")).toContain("rpc_patch_target_missing")
+      expect(reported.join("")).toContain("could not prepare the installed engine")
       expect(reported.join("")).toContain(REINSTALL)
       expect(existsSync(join(root, ENGINE_PREPARED_STAMP))).toBe(false)
     })

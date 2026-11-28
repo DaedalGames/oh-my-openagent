@@ -100,12 +100,12 @@ function createFixture(
       name: "@code-yeongyu/senpi",
       version: "2026.8.9",
       type: "module",
-      exports: { ".": "./dist/index.js" },
+      exports: { ".": "./dist/index.js", "./runtime-manifest.json": "./dist/bundle/runtime-manifest.json" },
     }),
   )
   writeFile(join(senpiRoot, "dist", "index.js"), "export const fixture = true\n")
   writeFile(
-    join(senpiRoot, "dist", "cli.js"),
+    join(senpiRoot, "dist", "bundle", "cli.js"),
     `
 import { writeFileSync } from "node:fs"
 writeFileSync(process.env.CAPTURE_FILE, JSON.stringify({ argv: process.argv.slice(2), env: process.env }))
@@ -114,7 +114,7 @@ if (process.env.FAKE_SIGNAL) process.kill(process.pid, process.env.FAKE_SIGNAL)
 process.exit(Number(process.env.FAKE_EXIT ?? 0))
 `,
   )
-  writeFile(join(senpiRoot, "dist", "core", "brand.js"), "export {}\n")
+  writeFile(join(senpiRoot, "dist", "bundle", "runtime-manifest.json"), "{}\n")
 
   let shimPath: string | undefined
   if (options.shim !== false) {
@@ -259,7 +259,7 @@ await runLauncher(["say", "hi", "-e", "/user/plugin"])
       expect(handed.file).toBe(process.execPath)
       expect(handed.argv).toEqual([
         process.execPath,
-        join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi", "dist", "cli.js"),
+        join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi", "dist", "bundle", "cli.js"),
         "--extension",
         join(fixture.packageRoot, "plugin"),
         "say",
@@ -280,7 +280,7 @@ await runLauncher(["say", "hi", "-e", "/user/plugin"])
         // given: a launcher-created duplex on fd 5, named by the private descriptor table
         const fixture = createFixture()
         writeFile(
-          join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi", "dist", "cli.js"),
+          join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi", "dist", "bundle", "cli.js"),
           `
 import { writeFileSync } from "node:fs"
 let wrote = false
@@ -817,7 +817,7 @@ await runLauncher(["say", "hi"])
     describe("#given the senpi CLI is missing", () => {
       test("#then resolution fails with actionable reinstall guidance", () => {
         const fixture = createFixture()
-        rmSync(join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi", "dist", "cli.js"))
+        rmSync(join(fixture.packageRoot, "node_modules", "@code-yeongyu", "senpi", "dist", "bundle", "cli.js"))
         const result = run(fixture, ["say", "hi"])
         expect(result.status).toBe(1)
         expect(result.stderr).toContain("reinstall with: npm i -g omo-ai@beta")
