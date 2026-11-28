@@ -2839,7 +2839,13 @@ jobs:
           # version 4-5 minutes after `npm publish` returns, and a 12 x 10 s budget failed a successful
           # lazycodex-ai publish in beta.31, beta.34, and 5.0.0-beta.57 (#8182).
           SMOKE_READINESS_INTERVAL_SECONDS=15
-          SMOKE_READINESS_ATTEMPTS=60   # 60 x 15 s = 15 minutes
+          # 60 x 15 s = 15 minutes. The workflow-execution test sets a few polls so its exhausted-budget case does not
+          # run all 60 through its npm/sleep stubs (over 30 s on Windows Git Bash, #15444); a release never sets it.
+          SMOKE_READINESS_ATTEMPTS="${LAZYCODEX_SMOKE_READINESS_ATTEMPTS:-60}"
+          if ! [[ "$SMOKE_READINESS_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::warning::LAZYCODEX_SMOKE_READINESS_ATTEMPTS='${SMOKE_READINESS_ATTEMPTS}' is not a positive integer; waiting the default 60 polls."
+            SMOKE_READINESS_ATTEMPTS=60
+          fi
 
           smoke_lazycodex_package() {
             package_spec="$1"
